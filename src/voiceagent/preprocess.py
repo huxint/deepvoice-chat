@@ -32,13 +32,10 @@ def _read_metadata(path: Path) -> Iterable[dict[str, str]]:
             yield row
 
 
-def _duration(path: Path) -> float | None:
-    try:
-        import soundfile as sf
+def _duration(path: Path) -> float:
+    import soundfile as sf
 
-        return float(sf.info(path).duration)
-    except Exception:
-        return None
+    return float(sf.info(path).duration)
 
 
 def _copy_or_resample(src: Path, dst: Path, target_sample_rate: int) -> None:

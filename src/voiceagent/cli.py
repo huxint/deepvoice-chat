@@ -68,6 +68,7 @@ def cmd_chat(args: argparse.Namespace) -> None:
             max_tokens=args.max_new_tokens,
             temperature=args.temperature,
             top_p=args.top_p,
+            structured_output=args.structured_output,
         )
     else:
         llm = LocalDeepSeekChat(
@@ -149,23 +150,20 @@ def cmd_lora_config(args: argparse.Namespace) -> None:
 
 def cmd_doctor(args: argparse.Namespace) -> None:
     del args
+    import torch
+
     checks = {
         "local_voxcpm_clone": Path("VoxCPM").exists(),
         "ffplay": shutil.which("ffplay") is not None,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count(),
     }
-    try:
-        import torch
-
-        checks["cuda_available"] = torch.cuda.is_available()
-        checks["cuda_device_count"] = torch.cuda.device_count()
-        if torch.cuda.is_available():
-            checks["gpu_name"] = torch.cuda.get_device_name(0)
-            checks["gpu_memory_gb"] = round(
-                torch.cuda.get_device_properties(0).total_memory / 1024**3,
-                2,
-            )
-    except Exception as exc:
-        checks["torch_error"] = str(exc)
+    if torch.cuda.is_available():
+        checks["gpu_name"] = torch.cuda.get_device_name(0)
+        checks["gpu_memory_gb"] = round(
+            torch.cuda.get_device_properties(0).total_memory / 1024**3,
+            2,
+        )
     print(json.dumps(checks, ensure_ascii=False, indent=2))
 
 
@@ -202,6 +200,12 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--max-new-tokens", type=int, default=192)
     chat.add_argument("--temperature", type=float, default=0.7)
     chat.add_argument("--top-p", type=float, default=0.9)
+    chat.add_argument(
+        "--structured-output",
+        choices=["tool", "json_object"],
+        default="tool",
+        help="Use tool/function-call schema by default; use json_object for endpoints without tools.",
+    )
     chat.add_argument("--output-dir", default="outputs/chat")
     chat.add_argument("--play", action="store_true")
     _add_tts_args(chat)

@@ -9,6 +9,7 @@ from typing import Iterable, Literal
 
 
 Role = Literal["system", "user", "assistant"]
+StructuredOutputMode = Literal["tool", "json_object"]
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,7 @@ STRUCTURED_VOICE_CHAT_PROMPT = (
     "read dialogue_state aloud and do not use it as a speech synthesis prompt. "
     "dialogue_state is a compact, persistent state summary for future turns: include "
     "the assistant persona's first-person emotional stance, relationship progress, "
-    "important user preferences, unresolved intentions, and delivery baseline. "
+    "important user preferences, unresolved intentions, and delivery baseline. Do not "
     "override the user's fixed base timbre, voice identity, or reference speaker. Keep "
     "the whole conversation continuous: use all previous user messages, prior "
     "assistant spoken_text values, prior assistant voice_prompt values, and prior "
@@ -49,33 +50,67 @@ STRUCTURED_VOICE_CHAT_PROMPT = (
     "the JSON object."
 )
 
+VOICE_CHAT_FUNCTION_NAME = "emit_voice_chat_turn"
+VOICE_CHAT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["spoken_text", "voice_prompt", "dialogue_state"],
+    "properties": {
+        "spoken_text": {
+            "type": "string",
+            "description": "The exact text to read aloud to the user.",
+            "minLength": 1,
+        },
+        "voice_prompt": {
+            "type": "string",
+            "description": "Delivery style for local TTS: emotion, pace, pauses, emphasis.",
+        },
+        "dialogue_state": {
+            "type": "string",
+            "description": "Compact persistent state for the next turn; never read aloud.",
+        },
+    },
+}
+
+
+def styled_reply_from_dict(data: dict) -> StyledReply:
+    spoken = str(data.get("spoken_text") or "").strip()
+    if not spoken:
+        raise ValueError("Chat model reply is missing spoken_text")
+
+    return StyledReply(
+        spoken_text=spoken,
+        voice_prompt=str(data.get("voice_prompt") or "").strip(),
+        dialogue_state=str(data.get("dialogue_state") or "").strip(),
+    )
+
+
+def _strip_json_fence(raw: str) -> str:
+    text = raw.strip()
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
 
 def parse_styled_reply(raw: str) -> StyledReply:
-    """Parse DeepSeek's structured JSON reply.
+    """Parse the required structured chat reply."""
 
-    The API is prompted to return JSON, but this parser accepts a plain text
-    fallback so the chat pipeline remains usable if a model drifts from format.
-    """
-
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:].strip()
+    text = _strip_json_fence(raw)
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
-        return StyledReply(spoken_text=text, voice_prompt="")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Chat model did not return valid JSON: {text}") from exc
 
     if not isinstance(data, dict):
-        return StyledReply(spoken_text=text, voice_prompt="")
+        raise ValueError("Chat model JSON reply must be an object")
 
-    spoken = str(data.get("spoken_text") or data.get("text") or "").strip()
-    voice = str(data.get("voice_prompt") or data.get("style_prompt") or "").strip()
-    state = str(data.get("dialogue_state") or data.get("state") or "").strip()
-    if not spoken:
-        spoken = text
-    return StyledReply(spoken_text=spoken, voice_prompt=voice, dialogue_state=state)
+    return styled_reply_from_dict(data)
 
 
 class EchoChat:
@@ -115,6 +150,7 @@ class OpenAICompatibleChat:
         temperature: float = 0.7,
         top_p: float = 0.9,
         system_prompt: str | None = None,
+        structured_output: StructuredOutputMode = "tool",
         timeout: float = 60.0,
     ):
         self.api_key = api_key or _first_env(
@@ -138,6 +174,7 @@ class OpenAICompatibleChat:
         self.temperature = temperature
         self.top_p = top_p
         self.system_prompt = system_prompt or STRUCTURED_VOICE_CHAT_PROMPT
+        self.structured_output = structured_output
         self.timeout = timeout
 
     def _messages(self, user_text: str, history: Iterable[ChatMessage]) -> list[dict[str, str]]:
@@ -147,7 +184,7 @@ class OpenAICompatibleChat:
         return messages
 
     def _payload(self, user_text: str, history: Iterable[ChatMessage]) -> dict:
-        return {
+        payload = {
             "model": self.model,
             "messages": self._messages(user_text, history),
             "max_tokens": self.max_tokens,
@@ -155,8 +192,26 @@ class OpenAICompatibleChat:
             "top_p": self.top_p,
             "stream": False,
         }
+        if self.structured_output == "tool":
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": VOICE_CHAT_FUNCTION_NAME,
+                        "description": "Return one structured voice chat turn.",
+                        "parameters": VOICE_CHAT_SCHEMA,
+                    },
+                }
+            ]
+            payload["tool_choice"] = {
+                "type": "function",
+                "function": {"name": VOICE_CHAT_FUNCTION_NAME},
+            }
+        else:
+            payload["response_format"] = {"type": "json_object"}
+        return payload
 
-    def reply(self, user_text: str, history: Iterable[ChatMessage] = ()) -> str:
+    def _post(self, user_text: str, history: Iterable[ChatMessage]) -> dict:
         if not self.api_key:
             raise RuntimeError(
                 "Chat API key is not set. Put it in VOICEAGENT_CHAT_API_KEY, "
@@ -184,13 +239,37 @@ class OpenAICompatibleChat:
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Chat API request failed: {exc.reason}") from exc
 
+        return body
+
+    @staticmethod
+    def _message(body: dict) -> dict:
         try:
-            return body["choices"][0]["message"]["content"].strip()
+            return body["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected chat API response: {body}") from exc
 
+    def _tool_reply(self, message: dict) -> StyledReply:
+        tool_calls = message.get("tool_calls") or []
+        for call in tool_calls:
+            function = call.get("function") or {}
+            if function.get("name") == VOICE_CHAT_FUNCTION_NAME:
+                arguments = function.get("arguments") or "{}"
+                data = json.loads(arguments) if isinstance(arguments, str) else arguments
+                return styled_reply_from_dict(data)
+        raise RuntimeError(f"Chat API did not call {VOICE_CHAT_FUNCTION_NAME}")
+
+    def reply(self, user_text: str, history: Iterable[ChatMessage] = ()) -> str:
+        message = self._message(self._post(user_text, history))
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise RuntimeError(f"Chat API response has no text content: {message}")
+        return content.strip()
+
     def reply_with_style(self, user_text: str, history: Iterable[ChatMessage] = ()) -> StyledReply:
-        return parse_styled_reply(self.reply(user_text, history))
+        message = self._message(self._post(user_text, history))
+        if self.structured_output == "tool":
+            return self._tool_reply(message)
+        return parse_styled_reply(message.get("content") or "")
 
 
 class DeepSeekAPIChat(OpenAICompatibleChat):
@@ -279,13 +358,11 @@ class LocalDeepSeekChat:
     def unload(self) -> None:
         self._model = None
         self._tokenizer = None
-        try:
-            import torch
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _format_messages(self, user_text: str, history: Iterable[ChatMessage]) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": self.system_prompt}]

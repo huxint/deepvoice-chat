@@ -29,11 +29,7 @@ class VoiceChatAgent:
     history: list[ChatMessage] = field(default_factory=list)
 
     def _reply_with_style(self, user_text: str) -> StyledReply:
-        method = getattr(self.chat_backend, "reply_with_style", None)
-        history = self._history_for_model()
-        if method is not None:
-            return method(user_text, history)
-        return StyledReply(spoken_text=self.chat_backend.reply(user_text, history))
+        return self.chat_backend.reply_with_style(user_text, self._history_for_model())
 
     def _history_for_model(self) -> list[ChatMessage]:
         context_parts = []

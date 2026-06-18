@@ -93,6 +93,8 @@ uv run voiceagent synth \
 - `voice_prompt`: 给 VoxCPM 的本轮语气提示词，例如 `relaxed tone, slightly slow pace, brief pauses before key suggestions`。
 - `dialogue_state`: 不朗读、不传给 TTS 的连续状态摘要，用来给下一轮保留角色心境、关系进展、用户偏好和表达基线。
 
+默认请求使用 Chat Completions 的 tool/function call：工具名是 `emit_voice_chat_turn`，参数由 JSON Schema 约束为上面三个字符串字段。这样比只在 prompt 里要求 JSON 更稳定。若某个兼容端点不支持 tools，可以加 `--structured-output json_object`，代码仍会严格解析并校验 JSON。
+
 `--voice` 是固定基础音色，`--reference-audio` 是固定参考说话人，对话模型只负责生成本轮语气，不会覆盖用户选择的音色。连续对话时系统会把整段历史都传回对话模型，包括之前的用户消息、之前朗读的 `spoken_text`、之前使用的 `voice_prompt` 和之前的 `dialogue_state`，并复用同一个参考音频和基础音色，从而尽量保持语义、语气和声音人设连续。
 
 API 一般不会把上一轮隐藏的 `think` 自动暴露给下一轮，也不应依赖隐藏思考做状态传递。系统提示词参考了 DeepSeek V4 角色沉浸指令的思路：如果模型有私有推理或内部角色规划过程，会要求它以角色第一人称规划情绪和表达方式。但程序明确禁止输出 chain-of-thought、`<think>` 标签或内心独白；需要跨轮保存的信息必须写进 `dialogue_state`，最终只接受 JSON。
@@ -116,6 +118,7 @@ uv run voiceagent chat \
   --chat-api-base https://your-compatible-endpoint/v1 \
   --chat-api-key "$YOUR_API_KEY" \
   --chat-model your-chat-model \
+  --structured-output json_object \
   --tts-model models/VoxCPM2 \
   --tts-device cpu
 ```
@@ -210,7 +213,7 @@ uv run voiceagent synth \
 
 ## 6. 代码结构
 
-- `src/voiceagent/llm.py`: OpenAI-compatible Chat Completions 结构化对话封装，输出朗读文本和语气提示词；默认推荐 DeepSeek，另保留本地 Hugging Face/echo 后端用于备用测试。
+- `src/voiceagent/llm.py`: OpenAI-compatible Chat Completions 结构化对话封装，默认用 tool/function-call JSON Schema 输出朗读文本、语气提示词和连续状态；默认推荐 DeepSeek，另保留本地 Hugging Face/echo 后端用于备用测试。
 - `src/voiceagent/tts.py`: VoxCPM 合成、音色描述、参考音频克隆封装。
 - `src/voiceagent/pipeline.py`: 文本对话到语音输出的端到端流水线。
 - `src/voiceagent/preprocess.py`: CSV/JSONL 到 VoxCPM JSONL manifest 的预处理。
