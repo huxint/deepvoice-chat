@@ -101,11 +101,7 @@ def parse_styled_reply(raw: str) -> StyledReply:
     """Parse the required structured chat reply."""
 
     text = _strip_json_fence(raw)
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Chat model did not return valid JSON: {text}") from exc
-
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Chat model JSON reply must be an object")
 
@@ -199,10 +195,6 @@ class OpenAICompatibleChat:
                 },
             }
         ]
-        payload["tool_choice"] = {
-            "type": "function",
-            "function": {"name": VOICE_CHAT_FUNCTION_NAME},
-        }
         return payload
 
     def _post(self, user_text: str, history: Iterable[ChatMessage]) -> dict:
@@ -224,23 +216,12 @@ class OpenAICompatibleChat:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Chat API HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Chat API request failed: {exc.reason}") from exc
-
-        return body
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
 
     @staticmethod
     def _message(body: dict) -> dict:
-        try:
-            return body["choices"][0]["message"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError(f"Unexpected chat API response: {body}") from exc
+        return body["choices"][0]["message"]
 
     def _tool_reply(self, message: dict) -> StyledReply:
         tool_calls = message.get("tool_calls") or []

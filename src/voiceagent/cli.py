@@ -196,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--local-llm-model", default=DEFAULT_LOCAL_DEEPSEEK_MODEL)
     chat.add_argument("--llm-device", default="cpu", help="cpu is safest on 4GB VRAM")
     chat.add_argument("--llm-dtype", default="auto")
-    chat.add_argument("--max-new-tokens", type=int, default=192)
+    chat.add_argument("--max-new-tokens", type=int, default=512)
     chat.add_argument("--temperature", type=float, default=0.7)
     chat.add_argument("--top-p", type=float, default=0.9)
     chat.add_argument("--output-dir", default="outputs/chat")

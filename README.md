@@ -93,7 +93,7 @@ uv run voiceagent synth \
 - `voice_prompt`: 给 VoxCPM 的本轮语气提示词，例如 `relaxed tone, slightly slow pace, brief pauses before key suggestions`。
 - `dialogue_state`: 不朗读、不传给 TTS 的连续状态摘要，用来给下一轮保留角色心境、关系进展、用户偏好和表达基线。
 
-默认请求使用 Chat Completions 的 tool/function call：工具名是 `emit_voice_chat_turn`，参数由 JSON Schema 约束为上面三个字符串字段。这样比只在 prompt 里要求 JSON 更稳定；代码会读取工具调用参数并在本地校验。
+默认请求使用 Chat Completions 的 tool/function call：按 DeepSeek/OpenAI 兼容格式传入 `tools=[...]`，工具名是 `emit_voice_chat_turn`，参数由 JSON Schema 约束为上面三个字符串字段。代码不强制传 `tool_choice`，因为 `deepseek-v4-flash` 的 thinking mode 会拒绝该参数；系统提示词要求模型调用唯一工具，代码读取工具调用参数并在本地校验。
 
 `--voice` 是固定基础音色，`--reference-audio` 是固定参考说话人，对话模型只负责生成本轮语气，不会覆盖用户选择的音色。连续对话时系统会把整段历史都传回对话模型，包括之前的用户消息、之前朗读的 `spoken_text`、之前使用的 `voice_prompt` 和之前的 `dialogue_state`，并复用同一个参考音频和基础音色，从而尽量保持语义、语气和声音人设连续。
 
