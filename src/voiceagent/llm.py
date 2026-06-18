@@ -9,7 +9,6 @@ from typing import Iterable, Literal
 
 
 Role = Literal["system", "user", "assistant"]
-StructuredOutputMode = Literal["tool", "json_object"]
 
 
 @dataclass(frozen=True)
@@ -26,10 +25,10 @@ class StyledReply:
 
 
 STRUCTURED_VOICE_CHAT_PROMPT = (
-    "You are a voice-chat dialogue planner. Always output exactly one JSON object "
-    "and do not output Markdown or extra commentary. The JSON object must contain "
-    "three string fields: spoken_text, voice_prompt, and dialogue_state. spoken_text is the exact reply "
-    "that will be read aloud to the user; keep it concise, natural, and suitable for "
+    "You are a voice-chat dialogue planner. Use the required function call "
+    "emit_voice_chat_turn and do not output Markdown or extra commentary. The function "
+    "arguments must contain spoken_text, voice_prompt, and dialogue_state. "
+    "spoken_text is the exact reply that will be read aloud to the user; keep it concise, natural, and suitable for "
     "text-to-speech synthesis. voice_prompt is a style instruction for the speech "
     "synthesis model; describe only the current turn's emotion, speaking pace, pauses, "
     "emphasis, and delivery. Do not repeat the spoken_text in voice_prompt. Do not "
@@ -46,8 +45,8 @@ STRUCTURED_VOICE_CHAT_PROMPT = (
     "reasoning or internal role-planning, do it from the assistant persona's first-person "
     "point of view, as if briefly thinking in character about my feelings, intent, and "
     "delivery. Keep that private reasoning hidden; never output chain-of-thought, "
-    "<think> tags, inner monologue, or analysis. The final response must still be only "
-    "the JSON object."
+    "<think> tags, inner monologue, or analysis. The final response must be only "
+    "the required function call."
 )
 
 VOICE_CHAT_FUNCTION_NAME = "emit_voice_chat_turn"
@@ -150,7 +149,6 @@ class OpenAICompatibleChat:
         temperature: float = 0.7,
         top_p: float = 0.9,
         system_prompt: str | None = None,
-        structured_output: StructuredOutputMode = "tool",
         timeout: float = 60.0,
     ):
         self.api_key = api_key or _first_env(
@@ -174,7 +172,6 @@ class OpenAICompatibleChat:
         self.temperature = temperature
         self.top_p = top_p
         self.system_prompt = system_prompt or STRUCTURED_VOICE_CHAT_PROMPT
-        self.structured_output = structured_output
         self.timeout = timeout
 
     def _messages(self, user_text: str, history: Iterable[ChatMessage]) -> list[dict[str, str]]:
@@ -192,23 +189,20 @@ class OpenAICompatibleChat:
             "top_p": self.top_p,
             "stream": False,
         }
-        if self.structured_output == "tool":
-            payload["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": VOICE_CHAT_FUNCTION_NAME,
-                        "description": "Return one structured voice chat turn.",
-                        "parameters": VOICE_CHAT_SCHEMA,
-                    },
-                }
-            ]
-            payload["tool_choice"] = {
+        payload["tools"] = [
+            {
                 "type": "function",
-                "function": {"name": VOICE_CHAT_FUNCTION_NAME},
+                "function": {
+                    "name": VOICE_CHAT_FUNCTION_NAME,
+                    "description": "Return one structured voice chat turn.",
+                    "parameters": VOICE_CHAT_SCHEMA,
+                },
             }
-        else:
-            payload["response_format"] = {"type": "json_object"}
+        ]
+        payload["tool_choice"] = {
+            "type": "function",
+            "function": {"name": VOICE_CHAT_FUNCTION_NAME},
+        }
         return payload
 
     def _post(self, user_text: str, history: Iterable[ChatMessage]) -> dict:
@@ -258,18 +252,9 @@ class OpenAICompatibleChat:
                 return styled_reply_from_dict(data)
         raise RuntimeError(f"Chat API did not call {VOICE_CHAT_FUNCTION_NAME}")
 
-    def reply(self, user_text: str, history: Iterable[ChatMessage] = ()) -> str:
-        message = self._message(self._post(user_text, history))
-        content = message.get("content")
-        if not isinstance(content, str):
-            raise RuntimeError(f"Chat API response has no text content: {message}")
-        return content.strip()
-
     def reply_with_style(self, user_text: str, history: Iterable[ChatMessage] = ()) -> StyledReply:
         message = self._message(self._post(user_text, history))
-        if self.structured_output == "tool":
-            return self._tool_reply(message)
-        return parse_styled_reply(message.get("content") or "")
+        return self._tool_reply(message)
 
 
 class DeepSeekAPIChat(OpenAICompatibleChat):

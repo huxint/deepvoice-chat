@@ -68,7 +68,6 @@ def cmd_chat(args: argparse.Namespace) -> None:
             max_tokens=args.max_new_tokens,
             temperature=args.temperature,
             top_p=args.top_p,
-            structured_output=args.structured_output,
         )
     else:
         llm = LocalDeepSeekChat(
@@ -200,12 +199,6 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--max-new-tokens", type=int, default=192)
     chat.add_argument("--temperature", type=float, default=0.7)
     chat.add_argument("--top-p", type=float, default=0.9)
-    chat.add_argument(
-        "--structured-output",
-        choices=["tool", "json_object"],
-        default="tool",
-        help="Use tool/function-call schema by default; use json_object for endpoints without tools.",
-    )
     chat.add_argument("--output-dir", default="outputs/chat")
     chat.add_argument("--play", action="store_true")
     _add_tts_args(chat)

@@ -28,27 +28,15 @@ def test_deepseek_api_payload_contains_history():
     ]
 
 
-def test_json_object_payload_mode():
-    chat = OpenAICompatibleChat(
-        api_key="test",
-        model="deepseek-chat",
-        structured_output="json_object",
-    )
-    payload = chat._payload("你好", [])
-
-    assert payload["response_format"] == {"type": "json_object"}
-    assert "tools" not in payload
-
-
 def test_system_prompt_uses_private_first_person_role_planning_without_leaking_cot():
     assert "first-person" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "dialogue_state" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "private reasoning hidden" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "never output chain-of-thought" in STRUCTURED_VOICE_CHAT_PROMPT
-    assert "JSON object" in STRUCTURED_VOICE_CHAT_PROMPT
+    assert "required function call" in STRUCTURED_VOICE_CHAT_PROMPT
 
 
-def test_parse_styled_reply_requires_json_object():
+def test_parse_styled_reply_rejects_plain_text():
     with pytest.raises(ValueError, match="valid JSON"):
         parse_styled_reply("plain text")
 
