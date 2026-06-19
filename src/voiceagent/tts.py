@@ -87,6 +87,8 @@ class VoxCPMSynthesizer:
         output_path: str | Path,
         *,
         style: VoiceStyle | None = None,
+        cfg_value: float | None = None,
+        inference_timesteps: int | None = None,
     ) -> dict[str, float | int | str]:
         self.load()
         assert self._model is not None
@@ -103,8 +105,10 @@ class VoxCPMSynthesizer:
             prompt_wav_path=style.prompt_audio,
             prompt_text=style.prompt_text,
             reference_wav_path=style.reference_audio,
-            cfg_value=self.cfg_value,
-            inference_timesteps=self.inference_timesteps,
+            cfg_value=self.cfg_value if cfg_value is None else cfg_value,
+            inference_timesteps=(
+                self.inference_timesteps if inference_timesteps is None else inference_timesteps
+            ),
         )
         sf.write(output, wav, self.sample_rate)
         return {
