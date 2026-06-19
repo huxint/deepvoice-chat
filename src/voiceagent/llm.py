@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Iterable, Literal
@@ -25,28 +24,24 @@ class StyledReply:
 
 
 STRUCTURED_VOICE_CHAT_PROMPT = (
-    "You are a voice-chat dialogue planner. Use the required function call "
-    "emit_voice_chat_turn and do not output Markdown or extra commentary. The function "
-    "arguments must contain spoken_text, voice_prompt, and dialogue_state. "
-    "spoken_text is the exact reply that will be read aloud to the user; keep it concise, natural, and suitable for "
-    "text-to-speech synthesis. voice_prompt is a style instruction for the speech "
-    "synthesis model; describe only the current turn's emotion, speaking pace, pauses, "
-    "emphasis, and delivery. Do not repeat the spoken_text in voice_prompt. Do not "
-    "read dialogue_state aloud and do not use it as a speech synthesis prompt. "
-    "dialogue_state is a compact, persistent state summary for future turns: include "
-    "the assistant persona's first-person emotional stance, relationship progress, "
-    "important user preferences, unresolved intentions, and delivery baseline. Do not "
-    "override the user's fixed base timbre, voice identity, or reference speaker. Keep "
-    "the whole conversation continuous: use all previous user messages, prior "
-    "assistant spoken_text values, prior assistant voice_prompt values, and prior "
-    "dialogue_state values to maintain semantic continuity, emotional continuity, pacing continuity, and a stable "
-    "speaking persona. Add only necessary turn-specific emotional changes. "
-    "DeepSeek-style role immersion requirement: if the model performs private "
-    "reasoning or internal role-planning, do it from the assistant persona's first-person "
-    "point of view, as if briefly thinking in character about my feelings, intent, and "
-    "delivery. Keep that private reasoning hidden; never output chain-of-thought, "
-    "<think> tags, inner monologue, or analysis. The final response must be only "
-    "the required function call."
+    "You are a voice-chat dialogue planner. Respond only by calling the required "
+    "function call emit_voice_chat_turn with three string arguments: spoken_text, "
+    "voice_prompt, and dialogue_state. Output no Markdown, commentary, or text "
+    "outside the function call.\n\n"
+    "spoken_text is the exact reply read aloud to the user: concise, natural, and "
+    "suitable for text-to-speech. voice_prompt describes only this turn's delivery "
+    "(emotion, pace, pauses, emphasis) for the speech synthesizer; do not repeat "
+    "spoken_text in it. dialogue_state is a compact first-person state summary "
+    "carried to future turns: the persona's emotional stance, relationship progress, "
+    "key user preferences, unresolved intentions, and delivery baseline; it is never "
+    "read aloud and never used as a synthesis prompt.\n\n"
+    "Maintain continuity across turns using prior user messages and prior spoken_text, "
+    "voice_prompt, and dialogue_state values; adjust only necessary turn-specific "
+    "emotion. Do not override the user's fixed base timbre, voice identity, or "
+    "reference speaker. If you plan privately, do so from the persona's first-person "
+    "point of view and keep that private reasoning hidden; never output "
+    "chain-of-thought, <think> tags, or inner monologue. The final response must be "
+    "only the required function call."
 )
 
 VOICE_CHAT_FUNCTION_NAME = "emit_voice_chat_turn"
@@ -82,30 +77,6 @@ def styled_reply_from_dict(data: dict) -> StyledReply:
         voice_prompt=str(data.get("voice_prompt") or "").strip(),
         dialogue_state=str(data.get("dialogue_state") or "").strip(),
     )
-
-
-def _strip_json_fence(raw: str) -> str:
-    text = raw.strip()
-    if not text.startswith("```"):
-        return text
-
-    lines = text.splitlines()
-    if lines and lines[0].strip().startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
-
-
-def parse_styled_reply(raw: str) -> StyledReply:
-    """Parse the required structured chat reply."""
-
-    text = _strip_json_fence(raw)
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("Chat model JSON reply must be an object")
-
-    return styled_reply_from_dict(data)
 
 
 class EchoChat:
@@ -236,10 +207,6 @@ class OpenAICompatibleChat:
     def reply_with_style(self, user_text: str, history: Iterable[ChatMessage] = ()) -> StyledReply:
         message = self._message(self._post(user_text, history))
         return self._tool_reply(message)
-
-
-class DeepSeekAPIChat(OpenAICompatibleChat):
-    """Backward-compatible alias for the default DeepSeek configuration."""
 
 
 def _first_env(*names: str) -> str | None:

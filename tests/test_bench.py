@@ -1,3 +1,5 @@
+import pytest
+
 from voiceagent.bench import format_markdown_table, run_benchmark
 from voiceagent.tts import VoiceStyle
 
@@ -37,8 +39,6 @@ def test_run_benchmark_reports_one_row_per_timesteps(tmp_path):
 
 def test_run_benchmark_rejects_bad_args(tmp_path):
     synth = FakeSynth()
-    import pytest
-
     with pytest.raises(ValueError):
         run_benchmark(synth, "x", timesteps_list=[], output_dir=tmp_path)
     with pytest.raises(ValueError):

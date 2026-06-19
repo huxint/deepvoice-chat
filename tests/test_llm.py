@@ -6,7 +6,6 @@ from voiceagent.llm import (
     OpenAICompatibleChat,
     STRUCTURED_VOICE_CHAT_PROMPT,
     VOICE_CHAT_FUNCTION_NAME,
-    parse_styled_reply,
 )
 
 
@@ -35,21 +34,6 @@ def test_system_prompt_uses_private_first_person_role_planning_without_leaking_c
     assert "private reasoning hidden" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "never output chain-of-thought" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "required function call" in STRUCTURED_VOICE_CHAT_PROMPT
-
-
-def test_parse_styled_reply_rejects_plain_text():
-    with pytest.raises(json.JSONDecodeError):
-        parse_styled_reply("plain text")
-
-
-def test_parse_styled_reply_accepts_json_fence():
-    reply = parse_styled_reply(
-        '```json\n{"spoken_text": "hello", "voice_prompt": "warm", "dialogue_state": "steady"}\n```'
-    )
-
-    assert reply.spoken_text == "hello"
-    assert reply.voice_prompt == "warm"
-    assert reply.dialogue_state == "steady"
 
 
 def test_tool_reply_uses_function_arguments():

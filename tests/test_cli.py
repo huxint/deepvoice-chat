@@ -1,3 +1,5 @@
+import pytest
+
 from voiceagent.cli import build_parser, recommend_model
 
 
@@ -7,8 +9,6 @@ def test_chat_backend_choices_drop_local():
     assert args.llm_backend == "echo"
 
     # The local backend was removed; argparse should reject it.
-    import pytest
-
     with pytest.raises(SystemExit):
         parser.parse_args(["chat", "--llm-backend", "local"])
 

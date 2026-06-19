@@ -162,12 +162,12 @@ def _system_ram_gb() -> float | None:
     if not meminfo.exists():
         return None
     try:
-        for line in meminfo.read_text(encoding="utf-8").splitlines():
-            if line.startswith("MemTotal:"):
-                kb = float(line.split()[1])
-                return round(kb / 1024**2, 2)
-    except (OSError, ValueError, IndexError):
+        text = meminfo.read_text(encoding="utf-8")
+    except OSError:
         return None
+    for line in text.splitlines():
+        if line.startswith("MemTotal:"):
+            return round(float(line.split()[1]) / 1024**2, 2)
     return None
 
 

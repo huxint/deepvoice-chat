@@ -3,12 +3,26 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from statistics import mean
+from typing import Protocol
 
 from .tts import VoiceStyle
 
 
+class SupportsSynthesis(Protocol):
+    """Minimal synthesis interface the benchmark depends on."""
+
+    def synthesize_to_file(
+        self,
+        text: str,
+        output_path: str | Path,
+        *,
+        style: VoiceStyle | None = ...,
+        inference_timesteps: int | None = ...,
+    ) -> dict[str, float | int | str]: ...
+
+
 def run_benchmark(
-    synthesizer,
+    synthesizer: SupportsSynthesis,
     text: str,
     *,
     timesteps_list: list[int],
