@@ -38,3 +38,4 @@ paper/*.toc
 
 .env
 .DS_Store
+docs/superpowers/

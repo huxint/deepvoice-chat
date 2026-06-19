@@ -1,6 +1,6 @@
 # DeepVoice Chat
 
-本项目是语音信号处理课程大作业代码部分：使用兼容 OpenAI Chat Completions 的对话 API 生成文本对话内容和本轮语气提示词，再接入本地运行的 OpenBMB VoxCPM 开源语音合成模型，实现可调音色的语音聊天、单句合成、数据预处理和 LoRA 微调配置生成。默认推荐 DeepSeek，因为它在角色扮演和语气规划上比较适合这个任务；其他支持 `/chat/completions` 的模型服务也可以替换。
+本项目是语音信号处理课程大作业代码部分：使用兼容 OpenAI Chat Completions 的对话 API 生成文本对话内容和本轮语气提示词，再接入本地运行的 OpenBMB VoxCPM 开源语音合成模型，实现可调音色的语音聊天、单句合成、数据预处理和 LoRA 微调配置生成。默认推荐 DeepSeek，因为它在角色扮演和语气规划上比较适合这个任务；其他支持 `/chat/completions` 的模型服务也可以替换。对话内容只走 API，本地只运行语音生成模型。
 
 `VoxCPM/` 是上游源码目录，已经加入 `.gitignore`，不会被提交到本仓库。
 
@@ -26,6 +26,8 @@
 - 6GB 左右显存：可尝试 `openbmb/VoxCPM1.5`，更稳但不支持 VoxCPM2 的全部音色设计能力。
 - 4GB 显存/本机优先跑通：尝试 CPU 推理，或使用 `openbmb/VoxCPM-0.5B` 做低资源演示。
 - 展示代码流程：先用 `--llm-backend echo` 验证链路，再接入 DeepSeek API。
+
+> 本机实测：`uv run voiceagent doctor` 报告 `cuda_available: false`。原因是当前 PyTorch 构建需要 CUDA 12+，而本机 NVIDIA 驱动为 CUDA 11.8，版本过旧无法被这套 torch 使用。叠加 4GB 显存不足以装下任何一档模型，本机的现实路径是 **CPU 推理**（可合成短句做演示，但 RTF 远大于 1，非实时）。`doctor` 会输出 `recommendation` 字段，根据检测到的显存/内存自动给出模型与设备建议。
 
 ## 2. 安装
 
@@ -157,6 +159,22 @@ uv run voiceagent chat \
 }
 ```
 
+### 速度基准（RTF）
+
+测量不同扩散推理步数下的合成耗时与实时率 RTF（= 合成耗时 / 音频时长，越低越好），用于论文实验表：
+
+```bash
+uv run voiceagent bench \
+  --tts-model openbmb/VoxCPM-0.5B \
+  --tts-device cpu \
+  --text "你好，这是本地语音合成的基准测试句子。" \
+  --timesteps 4 6 10 20 \
+  --repeats 1 \
+  --output outputs/bench.json
+```
+
+模型只加载一次并复用，命令会打印一张 Markdown 表并写出 `outputs/bench.json`，可直接粘进论文表格。
+
 ## 4. 数据预处理
 
 准备 `metadata.csv`：
@@ -212,8 +230,9 @@ uv run voiceagent synth \
 
 ## 6. 代码结构
 
-- `src/voiceagent/llm.py`: OpenAI-compatible Chat Completions 结构化对话封装，默认用 tool/function-call JSON Schema 输出朗读文本、语气提示词和连续状态；默认推荐 DeepSeek，另保留本地 Hugging Face/echo 后端用于备用测试。
-- `src/voiceagent/tts.py`: VoxCPM 合成、音色描述、参考音频克隆封装。
+- `src/voiceagent/llm.py`: OpenAI-compatible Chat Completions 结构化对话封装，默认用 tool/function-call JSON Schema 输出朗读文本、语气提示词和连续状态；默认推荐 DeepSeek，并保留 `echo` 后端用于无网络链路测试。对话内容只走 API，不在本地加载任何语言模型。
+- `src/voiceagent/tts.py`: VoxCPM 合成、音色描述、参考音频克隆封装，支持按调用覆盖 CFG 与推理步数。
+- `src/voiceagent/bench.py`: 跨推理步数测量合成耗时与实时率 RTF，输出可直接粘进论文的 Markdown 表。
 - `src/voiceagent/pipeline.py`: 文本对话到语音输出的端到端流水线。
 - `src/voiceagent/preprocess.py`: CSV/JSONL 到 VoxCPM JSONL manifest 的预处理。
 - `src/voiceagent/cli.py`: 命令行入口。
