@@ -10,6 +10,7 @@
 
 - Python 3.10-3.12，本项目默认使用 Python 3.11
 - uv 0.11+
+- Conda/Miniconda 可选
 - PyTorch 2.5+
 - CUDA 12+ 可选
 - 播放音频可用 `ffplay`
@@ -31,12 +32,25 @@
 
 ## 2. 安装
 
+默认使用 `uv`：
+
 ```bash
 uv python install 3.11
 uv sync --extra dev
 uv pip install -e VoxCPM
 uv run voiceagent doctor
 ```
+
+如果使用 conda：
+
+```bash
+conda env create -f environment.yml
+conda activate voiceagent
+python -m pip install -e VoxCPM
+voiceagent doctor
+```
+
+`environment.yml` 已经会安装项目本体和开发依赖；`VoxCPM/` 是上游源码目录，需要按实际下载位置额外 editable 安装。下文命令默认写成 `uv run ...`，在已激活的 conda 环境中可以直接去掉 `uv run` 前缀，例如 `uv run voiceagent synth` 改为 `voiceagent synth`，`uv run python` 改为 `python`。
 
 设置对话 API Key。项目不会自动读取 `.env`，可以把它作为本地记录，然后在 shell 中 `export`。默认 API base 是 DeepSeek，也可以替换为任何 OpenAI-compatible `/chat/completions` 服务：
 
@@ -240,9 +254,18 @@ uv run voiceagent synth \
 
 ## 7. 验证
 
+使用 `uv`：
+
 ```bash
 uv run pytest
 uv run ruff check src tests
+```
+
+使用 conda：
+
+```bash
+python -m pytest
+ruff check src tests
 ```
 
 模型端到端验证需要对话 API Key 和本地 VoxCPM 权重。4GB 显存机器上建议先用 CPU 或低资源语音模型验证。

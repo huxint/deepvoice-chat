@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run voiceagent doctor
-uv run pytest
+if [[ -n "${CONDA_PREFIX:-}" && "${VOICEAGENT_FORCE_UV:-0}" != "1" ]]; then
+  voiceagent doctor
+  python -m pytest
+else
+  uv run voiceagent doctor
+  uv run pytest
+fi
