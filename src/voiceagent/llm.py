@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Literal
 
 
@@ -117,22 +117,12 @@ class OpenAICompatibleChat:
         top_p: float = 0.9,
         system_prompt: str | None = None,
         timeout: float = 60.0,
+        env_path: str | Path = ".env",
     ):
-        self.api_key = api_key or _first_env(
-            "VOICEAGENT_CHAT_API_KEY",
-            "OPENAI_COMPATIBLE_API_KEY",
-            "OPENAI_API_KEY",
-            "DEEPSEEK_API_KEY",
-        )
+        env = _read_env_file(env_path)
+        self.api_key = api_key or env.get("VOICEAGENT_CHAT_API_KEY")
         self.api_base = (
-            api_base
-            or _first_env(
-                "VOICEAGENT_CHAT_API_BASE",
-                "OPENAI_COMPATIBLE_API_BASE",
-                "OPENAI_BASE_URL",
-                "DEEPSEEK_API_BASE",
-            )
-            or "https://api.deepseek.com"
+            api_base or env.get("VOICEAGENT_CHAT_API_BASE") or "https://api.deepseek.com"
         ).rstrip("/")
         self.model = model
         self.max_tokens = max_tokens
@@ -171,9 +161,7 @@ class OpenAICompatibleChat:
     def _post(self, user_text: str, history: Iterable[ChatMessage]) -> dict:
         if not self.api_key:
             raise RuntimeError(
-                "Chat API key is not set. Put it in VOICEAGENT_CHAT_API_KEY, "
-                "OPENAI_COMPATIBLE_API_KEY, OPENAI_API_KEY, or DEEPSEEK_API_KEY; "
-                "or pass --chat-api-key."
+                "Chat API key is not set. Put VOICEAGENT_CHAT_API_KEY in .env."
             )
 
         url = f"{self.api_base}/chat/completions"
@@ -209,9 +197,22 @@ class OpenAICompatibleChat:
         return self._tool_reply(message)
 
 
-def _first_env(*names: str) -> str | None:
-    for name in names:
-        value = os.environ.get(name)
-        if value:
-            return value
-    return None
+def _read_env_file(path: str | Path = ".env") -> dict[str, str]:
+    env_path = Path(path)
+    if not env_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        values[key] = value
+    return values

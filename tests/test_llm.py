@@ -28,6 +28,31 @@ def test_deepseek_api_payload_contains_history():
     ]
 
 
+def test_chat_config_reads_dotenv_without_system_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("VOICEAGENT_CHAT_API_KEY", "from-system-env")
+    monkeypatch.chdir(tmp_path)
+    tmp_path.joinpath(".env").write_text(
+        'VOICEAGENT_CHAT_API_KEY="from-dotenv"\n'
+        "VOICEAGENT_CHAT_API_BASE=https://example.test/v1\n",
+        encoding="utf-8",
+    )
+
+    chat = OpenAICompatibleChat()
+
+    assert chat.api_key == "from-dotenv"
+    assert chat.api_base == "https://example.test/v1"
+
+
+def test_chat_config_ignores_system_env_without_dotenv(monkeypatch, tmp_path):
+    monkeypatch.setenv("VOICEAGENT_CHAT_API_KEY", "from-system-env")
+    monkeypatch.chdir(tmp_path)
+
+    chat = OpenAICompatibleChat()
+
+    assert chat.api_key is None
+    assert chat.api_base == "https://api.deepseek.com"
+
+
 def test_system_prompt_uses_private_first_person_role_planning_without_leaking_cot():
     assert "first-person" in STRUCTURED_VOICE_CHAT_PROMPT
     assert "dialogue_state" in STRUCTURED_VOICE_CHAT_PROMPT

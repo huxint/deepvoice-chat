@@ -62,8 +62,6 @@ def cmd_chat(args: argparse.Namespace) -> None:
         llm = EchoChat()
     else:
         llm = OpenAICompatibleChat(
-            api_key=args.chat_api_key,
-            api_base=args.chat_api_base,
             model=args.chat_model,
             max_tokens=args.max_new_tokens,
             temperature=args.temperature,
@@ -232,20 +230,6 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="Interactive chat-completions API + local VoxCPM chat")
     chat.add_argument("--llm-backend", choices=["api", "echo"], default="api")
     chat.add_argument("--chat-model", "--deepseek-model", dest="chat_model", default=DEFAULT_CHAT_API_MODEL)
-    chat.add_argument(
-        "--chat-api-key",
-        "--deepseek-api-key",
-        dest="chat_api_key",
-        default=None,
-        help="Defaults to VOICEAGENT_CHAT_API_KEY/OPENAI_COMPATIBLE_API_KEY/DEEPSEEK_API_KEY",
-    )
-    chat.add_argument(
-        "--chat-api-base",
-        "--deepseek-api-base",
-        dest="chat_api_base",
-        default=None,
-        help="Defaults to https://api.deepseek.com",
-    )
     chat.add_argument("--max-new-tokens", type=int, default=512)
     chat.add_argument("--temperature", type=float, default=0.7)
     chat.add_argument("--top-p", type=float, default=0.9)

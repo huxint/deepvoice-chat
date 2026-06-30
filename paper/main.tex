@@ -226,10 +226,11 @@ LoRA 配置生成脚本根据预训练模型路径、训练 manifest、输出目
 \appendix
 \section{核心运行命令}
 \begin{lstlisting}[language=bash]
-uv sync --extra dev
-uv pip install -e VoxCPM
-export VOICEAGENT_CHAT_API_KEY="sk-your-key-here"
-uv run voiceagent synth --tts-model models/VoxCPM2 --tts-device cpu \
+conda env create -f environment.yml
+conda activate voiceagent
+python -m pip install -e VoxCPM
+cp .env.example .env
+voiceagent synth --tts-model models/VoxCPM2 --tts-device cpu \
   --voice "young female voice, warm and natural tone, medium pace" \
   --text "你好，这是本地语音聊天系统。" --output outputs/demo.wav
 \end{lstlisting}

@@ -9,39 +9,23 @@
 推荐环境：
 
 - Python 3.10-3.12，本项目默认使用 Python 3.11
-- uv 0.11+
-- Conda/Miniconda 可选
+- Conda/Miniconda
 - PyTorch 2.5+
 - CUDA 12+ 可选
 - 播放音频可用 `ffplay`
 
-本机检查结果：
-
-- GPU: NVIDIA GeForce RTX 3050 Laptop GPU, 4GB VRAM
-- RAM: 13GB
-- CPU: Intel i7-12650H
-
-上游 VoxCPM README 给出的显存需求约为：VoxCPM2 8GB、VoxCPM1.5 6GB、VoxCPM-0.5B 5GB。因此这台机器不适合在 GPU 上舒适运行 VoxCPM2。对话模型只走 API，不占本地显存；语音模型由用户按机器选择：
+上游 VoxCPM README 给出的显存需求约为：VoxCPM2 8GB、VoxCPM1.5 6GB、VoxCPM-0.5B 5GB。对话模型只走 API，不占本地显存；语音模型由用户按机器选择：
 
 - 8GB+ 显存或 CPU 慢速演示：使用 `openbmb/VoxCPM2`，支持自然语言音色设计、参考音频克隆和 48kHz 输出。
 - 6GB 左右显存：可尝试 `openbmb/VoxCPM1.5`，更稳但不支持 VoxCPM2 的全部音色设计能力。
-- 4GB 显存/本机优先跑通：尝试 CPU 推理，或使用 `openbmb/VoxCPM-0.5B` 做低资源演示。
+- 低显存机器优先跑通：尝试 CPU 推理，或使用 `openbmb/VoxCPM-0.5B` 做低资源演示。
 - 展示代码流程：先用 `--llm-backend echo` 验证链路，再接入 DeepSeek API。
 
-> 本机实测：`uv run voiceagent doctor` 报告 `cuda_available: false`。原因是当前 PyTorch 构建需要 CUDA 12+，而本机 NVIDIA 驱动为 CUDA 11.8，版本过旧无法被这套 torch 使用。叠加 4GB 显存不足以装下任何一档模型，本机的现实路径是 **CPU 推理**（可合成短句做演示，但 RTF 远大于 1，非实时）。`doctor` 会输出 `recommendation` 字段，根据检测到的显存/内存自动给出模型与设备建议。
+可运行 `voiceagent doctor` 查看当前环境的 CUDA、显存和内存检测结果，以及自动生成的模型与设备建议。
 
 ## 2. 安装
 
-默认使用 `uv`：
-
-```bash
-uv python install 3.11
-uv sync --extra dev
-uv pip install -e VoxCPM
-uv run voiceagent doctor
-```
-
-如果使用 conda：
+使用 conda 创建并激活环境：
 
 ```bash
 conda env create -f environment.yml
@@ -50,27 +34,32 @@ python -m pip install -e VoxCPM
 voiceagent doctor
 ```
 
-`environment.yml` 已经会安装项目本体和开发依赖；`VoxCPM/` 是上游源码目录，需要按实际下载位置额外 editable 安装。下文命令默认写成 `uv run ...`，在已激活的 conda 环境中可以直接去掉 `uv run` 前缀，例如 `uv run voiceagent synth` 改为 `voiceagent synth`，`uv run python` 改为 `python`。
+`environment.yml` 会安装 Python 3.11、系统音频依赖、项目本体和开发依赖；`VoxCPM/` 是上游源码目录，需要按实际下载位置额外 editable 安装。下文命令均假设已经执行 `conda activate voiceagent`。
 
-设置对话 API Key。项目不会自动读取 `.env`，可以把它作为本地记录，然后在 shell 中 `export`。默认 API base 是 DeepSeek，也可以替换为任何 OpenAI-compatible `/chat/completions` 服务：
+设置对话 API Key。项目只读取当前目录下的 `.env` 文件，不读取系统环境变量，因此不需要改 `~/.bashrc`。默认 API base 是 DeepSeek，也可以替换为任何 OpenAI-compatible `/chat/completions` 服务：
 
 ```bash
 cp .env.example .env
-export VOICEAGENT_CHAT_API_KEY="sk-your-key-here"
-export VOICEAGENT_CHAT_API_BASE="https://api.deepseek.com"
+```
+
+然后编辑 `.env`：
+
+```dotenv
+VOICEAGENT_CHAT_API_KEY=sk-your-key-here
+VOICEAGENT_CHAT_API_BASE=https://api.deepseek.com
 ```
 
 如需提前下载本地语音模型：
 
 ```bash
-uv run huggingface-cli download openbmb/VoxCPM2 \
+huggingface-cli download openbmb/VoxCPM2 \
   --local-dir models/VoxCPM2
 ```
 
 国内网络可用 ModelScope 下载 VoxCPM：
 
 ```bash
-uv run python - <<'PY'
+python - <<'PY'
 from modelscope import snapshot_download
 snapshot_download("OpenBMB/VoxCPM2", local_dir="models/VoxCPM2")
 PY
@@ -81,7 +70,7 @@ PY
 ### 单句语音合成
 
 ```bash
-uv run voiceagent synth \
+voiceagent synth \
   --tts-model models/VoxCPM2 \
   --tts-device cpu \
   --text "你好，这是本地语音聊天系统的测试。" \
@@ -92,7 +81,7 @@ uv run voiceagent synth \
 低资源替代：
 
 ```bash
-uv run voiceagent synth \
+voiceagent synth \
   --tts-model openbmb/VoxCPM-0.5B \
   --tts-device cpu \
   --prompt-audio VoxCPM/examples/reference_speaker.wav \
@@ -116,7 +105,7 @@ uv run voiceagent synth \
 API 一般不会把上一轮隐藏的 `think` 自动暴露给下一轮，也不应依赖隐藏思考做状态传递。系统提示词参考了 DeepSeek V4 角色沉浸指令的思路：如果模型有私有推理或内部角色规划过程，会要求它以角色第一人称规划情绪和表达方式。但程序明确禁止输出 chain-of-thought、`<think>` 标签或内心独白；需要跨轮保存的信息必须写进 `dialogue_state`，最终只接受 `emit_voice_chat_turn` 工具调用参数。
 
 ```bash
-uv run voiceagent chat \
+voiceagent chat \
   --llm-backend api \
   --chat-model deepseek-chat \
   --tts-model models/VoxCPM2 \
@@ -128,11 +117,16 @@ uv run voiceagent chat \
 
 兼容服务替换示例：
 
+先修改 `.env`：
+
+```dotenv
+VOICEAGENT_CHAT_API_KEY=sk-your-key-here
+VOICEAGENT_CHAT_API_BASE=https://your-compatible-endpoint/v1
+```
+
 ```bash
-uv run voiceagent chat \
+voiceagent chat \
   --llm-backend api \
-  --chat-api-base https://your-compatible-endpoint/v1 \
-  --chat-api-key "$YOUR_API_KEY" \
   --chat-model your-chat-model \
   --tts-model models/VoxCPM2 \
   --tts-device cpu
@@ -141,7 +135,7 @@ uv run voiceagent chat \
 使用参考音频固定说话人：
 
 ```bash
-uv run voiceagent chat \
+voiceagent chat \
   --llm-backend api \
   --tts-model models/VoxCPM2 \
   --tts-device cpu \
@@ -153,7 +147,7 @@ uv run voiceagent chat \
 无模型链路测试：
 
 ```bash
-uv run voiceagent chat \
+voiceagent chat \
   --llm-backend echo \
   --tts-model models/VoxCPM2 \
   --tts-device cpu \
@@ -178,7 +172,7 @@ uv run voiceagent chat \
 测量不同扩散推理步数下的合成耗时与实时率 RTF（= 合成耗时 / 音频时长，越低越好），用于论文实验表：
 
 ```bash
-uv run voiceagent bench \
+voiceagent bench \
   --tts-model openbmb/VoxCPM-0.5B \
   --tts-device cpu \
   --text "你好，这是本地语音合成的基准测试句子。" \
@@ -202,7 +196,7 @@ sample002.wav,这是第二条训练语音。
 生成 VoxCPM 训练 manifest：
 
 ```bash
-uv run voiceagent preprocess \
+voiceagent preprocess \
   --metadata data/raw/metadata.csv \
   --audio-root data/raw/wavs \
   --processed-dir data/processed/wavs_16k \
@@ -220,7 +214,7 @@ manifest 格式：
 生成配置：
 
 ```bash
-uv run voiceagent lora-config \
+voiceagent lora-config \
   --pretrained-path models/VoxCPM2 \
   --train-manifest data/manifests/train.jsonl \
   --output configs/voxcpm_lora.yaml
@@ -229,14 +223,14 @@ uv run voiceagent lora-config \
 运行上游训练脚本：
 
 ```bash
-uv run python VoxCPM/scripts/train_voxcpm_finetune.py \
+python VoxCPM/scripts/train_voxcpm_finetune.py \
   --config configs/voxcpm_lora.yaml
 ```
 
 微调完成后推理：
 
 ```bash
-uv run voiceagent synth \
+voiceagent synth \
   --tts-model models/VoxCPM2 \
   --lora-path checkpoints/finetune_lora/lora_weights.ckpt \
   --text "这是加载 LoRA 后的语音。"
@@ -254,21 +248,14 @@ uv run voiceagent synth \
 
 ## 7. 验证
 
-使用 `uv`：
-
-```bash
-uv run pytest
-uv run ruff check src tests
-```
-
-使用 conda：
+在已激活的 conda 环境中运行：
 
 ```bash
 python -m pytest
 ruff check src tests
 ```
 
-模型端到端验证需要对话 API Key 和本地 VoxCPM 权重。4GB 显存机器上建议先用 CPU 或低资源语音模型验证。
+模型端到端验证需要对话 API Key 和本地 VoxCPM 权重。低显存机器上建议先用 CPU 或低资源语音模型验证。
 
 ## 8. 数据来源
 
