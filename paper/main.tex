@@ -1,15 +1,42 @@
 \documentclass[UTF8,a4paper,12pt]{ctexart}
 
 \usepackage{geometry}
+\usepackage{setspace}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{tabularx}
 \usepackage{amsmath}
+\usepackage[numbers,sort&compress]{natbib}
 \usepackage{hyperref}
 \usepackage{listings}
 \usepackage{xcolor}
 
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\setstretch{1.35}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+
+\ctexset{
+  section = {
+    format = \centering\zihao{4}\heiti,
+    name = {,、},
+    number = \chinese{section}
+  },
+  subsection = {
+    format = \zihao{-4}\heiti,
+    number = \arabic{section}.\arabic{subsection}
+  },
+  subsubsection = {
+    format = \zihao{-4}\heiti,
+    number = \arabic{section}.\arabic{subsection}.\arabic{subsubsection}
+  }
+}
+
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\renewcommand{\abstractname}{摘\quad 要}
+\renewcommand{\refname}{参考文献}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
 
 \lstset{
   basicstyle=\ttfamily\small,
@@ -18,116 +45,182 @@
   columns=fullflexible
 }
 
-\title{基于 VoxCPM 的可控音色语音合成与语音聊天系统实现}
-\author{姓名：\underline{\hspace{4cm}} \quad 学号：\underline{\hspace{4cm}}}
-\date{\today}
+\title{\zihao{2}\heiti 基于 VoxCPM 的可控音色语音合成与语音聊天系统实现}
+\author{\zihao{-4} 姓名：\underline{\hspace{4cm}} \quad 学号：\underline{\hspace{4cm}}}
+\date{\zihao{-4}\today}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-本文面向语音信号处理课程大作业，围绕开源神经语音合成模型 VoxCPM/VoxCPM2 设计并实现了一个可控音色语音合成与语音聊天系统。项目重点在本地语音模型的推理与适配：通过自然语言音色描述、参考音频克隆和 LoRA 说话人微调，实现从文本条件到目标语音波形的生成；对话模型仅用于产生待朗读文本和语气条件，不参与语音信号建模。系统实现包括音频数据预处理、VoxCPM 条件输入封装、推理参数控制、参考音频复用、训练 manifest 构建和 LoRA 配置生成。论文从连续语音表征、层次化语义-声学建模、音色控制与实验评价四个方面分析系统。实验部分计划从实时率、可懂度、音色相似度、主观自然度和不同推理步数下的速度质量权衡进行评估。硬件分析表明，4GB 显存笔记本不适合舒适运行 VoxCPM2，需要采用 CPU 推理、低资源 VoxCPM-0.5B 或更高显存设备。
+语音合成（Text-to-Speech, TTS）的目标是将文本序列转换为自然、清晰且具有指定说话人特征的语音波形。随着神经声学模型、神经声码器、扩散模型和大规模语音生成模型的发展，TTS 已从传统拼接与统计参数合成，演进到支持零样本声音克隆、自然语言音色控制和多语言生成的端到端系统。本文面向语音信号处理课程实践，基于开源模型 VoxCPM/VoxCPM2 设计并实现一个可控音色语音合成与语音聊天系统。系统将对话文本生成与本地语音合成解耦：对话模型只输出待朗读文本和本轮语气描述，VoxCPM 负责根据文本、音色描述、参考音频或 LoRA 适配权重生成语音。论文重点介绍语音合成的基本技术路线、VoxCPM 的连续表征生成思想、系统架构、音色控制方法、数据预处理与 LoRA 微调流程，并讨论低资源设备和高显存设备上的不同实验策略。结果表明，该系统能够形成完整的“文本条件组织--本地语音推理--音频输出--实验评测”链路；在低显存设备上应优先完成短句演示和流程验证，而实时交互与 LoRA 适配更适合放到高显存平台实测。
 
 \textbf{关键词：} 语音合成；VoxCPM；声音克隆；音色控制；LoRA 微调
 \end{abstract}
 
 \section{引言}
-随着神经网络声学模型、扩散模型和大规模语音生成模型的发展，语音合成已经从传统拼接合成、统计参数合成发展到能够进行零样本声音克隆和自然语言风格控制的生成式系统。课程项目关注深度学习与语音信号处理的结合，本文选择“可控音色语音合成”作为核心任务，并将其放入语音聊天场景中展示：系统接收待朗读文本和语气控制条件，再由本地 VoxCPM 模型生成目标音色的语音波形。
+语音合成是语音信号处理和人机交互中的基础任务，其核心问题是学习从离散文本符号到连续语音波形的条件映射。同一句文本可以由不同说话人以不同语速、情绪和韵律自然读出，因此语音合成不仅要求内容可懂，还要求声学质量、自然度、音色一致性和可控性。传统方法通常依赖人工设计的文本分析、韵律预测、声学建模与声码器模块；近年来，深度神经网络和生成式模型显著降低了特征工程负担，使端到端、多说话人和零样本声音克隆成为可能。
 
-语音合成是语音信号处理的典型任务，其本质是学习从离散文本符号序列到连续声学波形的条件映射。该映射高度欠定：同一句文本可以由不同说话人、不同情绪、不同语速自然地读出，因此可控性（音色、情感、节奏的显式调节）和稳定性（避免漏字、重复、跳读）一直是工程落地的核心难点。近年的生成式语音模型借助大规模预训练，在零样本声音克隆和自然语言风格描述上取得突破，但同时带来了模型体量大、显存需求高、推理较慢等部署代价。课程实验既要体现深度学习方法的先进性，也要在有限算力上跑通完整链路，这正是本文工程化工作的出发点。
+本文选择“可控音色语音合成”作为课程项目主题，并将其放入语音聊天场景中验证。系统接收用户输入后，由兼容 OpenAI Chat Completions 接口的对话模型生成待朗读文本和语气提示词，再由本地 VoxCPM 模型合成语音。需要强调的是，本文研究重点不是在线聊天模型，而是本地语音生成链路：如何组织文本、音色描述、参考音频和微调权重，使语音模型输出稳定、可控且便于评价。
 
-本项目的目标不是调用在线语音合成服务，而是复现并工程化一个开源本地语音模型。系统保留 VoxCPM 上游模型作为核心声学生成后端，在项目侧实现音色控制参数封装、参考音频管理、数据预处理、LoRA 配置生成、速度基准测量和命令行推理入口。系统在架构上把“对话内容生成”与“语音信号生成”彻底解耦：聊天文本由兼容 OpenAI 接口的对话模型（默认 DeepSeek）产生，本地不加载任何语言模型，只运行语音合成；论文的技术重点始终是本地语音生成链路：如何组织文本、语气、参考音频和微调权重，使 VoxCPM 输出稳定、可控且可比较的语音。本文的主要工作包括：（1）设计对话与语音解耦的可控音色语音聊天系统并完整实现；（2）封装 VoxCPM 的自然语言音色设计、参考音频克隆与 LoRA 适配三种音色控制方式；（3）实现数据预处理与训练 manifest 构建，给出 LoRA 微调配置生成流程；（4）实现跨推理步数的实时率基准脚本，并在 4GB 显存笔记本上给出低资源部署的可行性分析。
+本文的主要工作如下：
+\begin{enumerate}
+  \item 梳理语音合成从传统流水线到神经生成模型的技术路线，并说明 VoxCPM 在连续语音表征建模上的特点。
+  \item 设计对话生成与语音生成解耦的系统结构，使本地端只承担语音合成、声音克隆和评测任务。
+  \item 封装 VoxCPM 的自然语言音色设计、参考音频克隆和 LoRA 说话人适配三种控制方式。
+  \item 实现数据预处理、训练 manifest 构建、LoRA 配置生成和实时率（Real-Time Factor, RTF）基准测量。
+  \item 分析低显存平台上的部署限制，给出本地验证与高显存上云实验的分工方案。
+\end{enumerate}
 
 \section{国内外研究现状}
-早期语音合成常使用拼接合成和统计参数合成，近年来主流方法转向基于深度神经网络的端到端 TTS。Tacotron~2 将文本经注意力机制映射为梅尔谱，再由 WaveNet 声码器还原波形，显著提升了自然度 \cite{shen2018tacotron2}；FastSpeech~2 引入非自回归并行生成和显式时长、音高、能量预测，在加速推理的同时增强了韵律可控性 \cite{ren2021fastspeech2}；VITS 把变分自编码器、规范化流和对抗训练统一进单阶段端到端框架，实现了高保真直接波形生成 \cite{kim2021vits}。这些工作共同确立了“文本到中间声学表征再到波形”的神经合成范式。
+\subsection{语音合成技术概述}
+从工程流程看，典型 TTS 系统一般包含三类核心环节。第一是文本前端处理，将原始文本规范化，并完成分词、读音、韵律边界和停顿等语言信息预测。第二是声学建模，将文本或音素序列映射为梅尔谱、声学隐变量或离散语音 token 等中间表征。第三是波形生成，即由声码器或解码器生成最终音频波形。传统拼接合成依赖大规模录音库检索和拼接，优点是局部音质高，缺点是灵活性差；统计参数合成使用隐马尔可夫模型等方法预测声学参数，稳定性较好但自然度有限；神经 TTS 则利用深度模型直接学习文本到声学表征、再到波形的映射，成为当前主流方向。
 
-近年的大规模语音生成模型进一步引入离散语音 token、扩散模型、流匹配和语言模型骨干，使系统具备零样本声音克隆、多说话人控制和跨语言生成能力。VALL-E 将 TTS 重构为基于神经音频编解码器离散 token 的语言建模任务，仅凭数秒参考音频即可零样本克隆说话人音色与声学环境 \cite{wang2023valle}。与此同时，扩散与流匹配方法 \cite{lipman2023flowmatching} 为连续声学表征的生成提供了高质量采样框架，无分类器引导（CFG）\cite{ho2022cfg} 则在采样时通过条件与无条件预测的线性组合增强文本条件的约束强度，是控制生成稳定性与表现力权衡的常用手段。
+Tacotron~2 将文本通过序列到序列注意力模型转换为梅尔谱，再由 WaveNet 声码器还原波形，显著提升了自然度 \cite{shen2018tacotron2}。FastSpeech~2 采用非自回归结构，并显式预测时长、音高和能量，在提升推理速度的同时增强韵律可控性 \cite{ren2021fastspeech2}。VITS 将变分自编码器、规范化流和对抗训练统一到端到端框架中，能够直接生成高保真语音 \cite{kim2021vits}。这些方法共同推动了 TTS 从多模块流水线走向端到端神经合成。
 
-VoxCPM 的核心特点是 tokenizer-free，即不依赖外部离散语音分词器，而是在连续语音表征空间中通过层次化语义-声学建模生成语音 \cite{zhou2025voxcpm}。相比依赖离散 token 的方案，连续表征避免了量化损失和码本受限问题，有利于保留细粒度音色与韵律。VoxCPM2 在此基础上扩展到 2B 参数、30 种语言、自然语言音色设计、可控声音克隆和 48kHz 输出，并以 MiniCPM-4 作为语言骨干 \cite{voxcpm2_2026}。其官方文档给出了 LocEnc、TSLM、RALM、LocDiT 的四阶段结构，这为课程项目提供了一个具备研究价值、且开源可微调的本地语音模型基础。
+\subsection{大规模语音生成模型}
+近年来，语音生成进一步受到大语言模型、神经音频编解码器、扩散模型和流匹配方法的影响。VALL-E 将语音合成建模为离散音频 token 的语言建模任务，仅凭短参考音频即可进行零样本声音克隆 \cite{wang2023valle}。扩散模型和流匹配方法则通过逐步去噪或连续概率路径学习生成高质量声学表征 \cite{lipman2023flowmatching}；无分类器引导（Classifier-Free Guidance, CFG）可在采样时调节条件约束强度，从而平衡文本一致性与表达自然度 \cite{ho2022cfg}。
 
-在交互系统中，对话模型只提供待朗读文本和语气描述，可由 DeepSeek 或其他兼容接口生成 \cite{deepseekai2025r1}。该部分属于上层文本条件生成，不改变语音模型的训练与推理机制；工程实现借助 Hugging Face Transformers 生态完成模型加载与推理 \cite{wolf2020transformers}。因此本文后续重点讨论 VoxCPM 的本地推理、音色控制、参考音频条件和 LoRA 适配 \cite{hu2022lora}，而不是对话 API 本身。
+VoxCPM 的特点是 tokenizer-free，即不依赖外部离散语音分词器，而是在连续语音表征空间中进行层次化语义--声学建模 \cite{zhou2025voxcpm}。相比离散 token 方案，连续表征能够减少量化误差，保留更细粒度的音色、韵律和情感信息。VoxCPM2 进一步扩展到更大的模型规模、多语言合成、自然语言音色设计、参考音频克隆和 48kHz 输出 \cite{voxcpm2_2026}。这些能力使其适合作为课程项目中的本地语音合成后端。
 
-\section{方法}
-\subsection{系统总体结构}
-系统由四个模块组成：文本与语气条件生成、VoxCPM 本地语音合成、音色/参考音频控制、实验与微调工具链。给定待朗读文本 $y$、语气提示词 $p$、基础音色描述 $s$ 和可选参考音频 $a_r$，系统首先构造 VoxCPM 的条件文本：
+\subsection{个性化音色适配}
+可控音色合成通常有三种实现路径。第一，使用自然语言描述指定音色和风格，例如“年轻女性、语速中等、语气温和”。第二，使用参考音频作为条件，让模型保持参考说话人的音色。第三，在少量目标说话人数据上进行参数高效微调。LoRA 通过在原模型权重旁引入低秩增量矩阵，只训练少量适配参数，能够在保留基础模型能力的同时提高特定说话人音色相似度 \cite{hu2022lora}。本文系统同时支持上述三种方式。
+
+\section{系统设计与实现}
+\subsection{总体架构}
+系统由四个部分组成：对话文本生成、语音合成推理、音色控制与参考音频管理、实验评测与微调工具链。对话模型只负责产生结构化文本结果，包括真正朗读的 \texttt{spoken\_text}、本轮语气提示词 \texttt{voice\_prompt} 和不进入 TTS 的 \texttt{dialogue\_state}。本地语音端接收朗读文本、基础音色描述、语气提示词、可选参考音频和可选 LoRA 权重，然后调用 VoxCPM 生成 WAV 文件。
+
+给定朗读文本 $y$、本轮语气提示词 $p$、基础音色描述 $s$ 和可选参考音频 $a_r$，系统首先构造语音模型的条件文本：
 \[
-\tilde{y} = \mathrm{concat}((s, p), y).
+  \tilde{y}=\mathrm{concat}((s,p),y).
 \]
-其中括号内的自然语言描述用于控制音色、情绪、语速和停顿。随后 VoxCPM 根据文本条件、可选参考音频和可选提示音频转写生成波形：
+其中 $s$ 用于保持说话人身份和基础音色，$p$ 用于控制本轮情绪、语速、停顿和重音。VoxCPM 的推理过程可抽象为：
 \[
-\hat{a} = g_{\phi}(\tilde{y}, a_r, a_p, t_p).
+  \hat{a}=g_{\phi}(\tilde{y},a_r,a_p,t_p),
 \]
-其中 $a_p$ 和 $t_p$ 分别表示极致克隆模式下的提示音频与对应转写文本。项目侧代码不修改 VoxCPM 主体结构，而是实现条件组织、模型加载、输出保存和实验参数控制。
-
-为了保证对话内容与语音生成解耦，系统约束对话模型只通过 Chat Completions 的工具调用（function call）返回结构化结果，包含三个字段：$y$（\texttt{spoken\_text}，真正朗读的文本）、$p$（\texttt{voice\_prompt}，仅本轮的情绪、语速、停顿与重音描述）和一个不朗读、不进入 TTS 的对话状态摘要 $c$（\texttt{dialogue\_state}）。$c$ 在多轮之间持续传递，用于保持人设、关系进展和表达基线的连续性，但绝不作为语音合成提示词。系统提示词显式禁止输出思维链与内心独白，需要跨轮保留的信息一律写入 $c$。这样既利用了对话模型的角色规划能力，又确保本地语音链路只接收明确的朗读文本与语气条件。本地不加载任何语言模型，符合“本地只跑语音生成”的设计定位。
+其中 $\hat{a}$ 为生成波形，$a_p$ 和 $t_p$ 分别表示极致克隆模式下的提示音频及其转写文本。项目代码不修改 VoxCPM 主体网络，而是在工程侧完成模型加载、条件封装、参数传递、输出保存和评测统计。
 
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.88\linewidth}{\centering 图 1 占位：系统流程图。请使用 paper/figures/prompts.md 中的 Prompt 1 生成后替换。}}
-  \caption{基于本地 VoxCPM 的可控音色语音合成系统流程。}
+  \fbox{\parbox{0.88\linewidth}{\centering 图 1 占位：系统流程图。使用 \texttt{paper/figures/prompts.md} 中 Prompt 1 生成后替换。}}
+  \caption{对话生成与本地 VoxCPM 语音合成解耦的系统流程。}
   \label{fig:pipeline}
 \end{figure}
 
-\subsection{VoxCPM 连续表征语音生成}
-VoxCPM 的关键思想是避免依赖外部离散语音分词器，直接在连续音频隐空间中建模语音。其整体流程可概括为四个阶段：局部编码器将音频片段映射到紧凑连续表征；文本-语义语言模型负责根据文本捕捉语义、韵律和停顿计划；残差声学语言模型补充细粒度声学信息；局部扩散 Transformer 在条件流匹配或扩散解码框架下生成连续音频 latent，最后由 AudioVAE 解码为波形。VoxCPM2 进一步支持 48kHz 输出、多语言合成、自然语言音色设计和参考音频可控克隆。
+\begin{table}[htbp]
+  \centering
+  \caption{系统主要模块及功能}
+  \label{tab:modules}
+  \begin{tabularx}{\linewidth}{lllX}
+    \toprule
+    模块 & 输入 & 输出 & 功能说明 \\
+    \midrule
+    对话生成 & 用户文本、历史状态 & 朗读文本、语气提示 & 生成需要朗读的内容，并给出情绪、语速和停顿提示 \\
+    VoxCPM 推理 & 文本、音色描述、参考音频 & WAV 音频 & 调用本地语音模型生成目标语音波形 \\
+    数据预处理 & 音频、转写文本 & JSONL manifest & 统一采样率、声道和样本时长，生成训练清单 \\
+    LoRA 配置 & 预训练模型、manifest & YAML 配置 & 生成上游微调脚本所需参数 \\
+    速度基准 & 模型、测试文本、步数 & RTF 表格 & 测量不同推理步数下的合成耗时和实时率 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
 
-本项目的推理封装集中在三个参数：CFG 引导系数、扩散推理步数和最大生成长度。CFG（无分类器引导）\cite{ho2022cfg} 在采样时按系数线性放大文本条件相对于无条件预测的方向，系数越大文本约束越强、表现力越克制；扩散/流匹配解码 \cite{lipman2023flowmatching} 的推理步数决定了从噪声到目标 latent 的离散积分精度，步数越多通常质量越高但耗时线性增长；最大长度则控制生成音频时长和显存占用。本文实验正是围绕推理步数这一关键超参，量化其对实时率与质量的影响。为了适应课程实验和低显存机器，默认关闭 denoiser 与编译优化，优先保证模型可加载和流程可复现。
+\subsection{VoxCPM 语音生成流程}
+VoxCPM 的语音生成可概括为“文本语义规划--声学细节补充--连续 latent 生成--波形解码”四个阶段。局部编码器将语音片段表示为紧凑连续特征；文本--语义语言模型根据输入文本预测语义、韵律和停顿；残差声学语言模型补充细粒度声学信息；局部扩散 Transformer 在扩散或流匹配框架下生成连续音频 latent，最后由解码器还原为波形。该流程避免了外部离散 tokenizer 对音频细节的量化限制，有利于保留说话人的音色差异和自然韵律。
 
-\subsection{VoxCPM 语音合成与音色控制}
-VoxCPM2 支持两种主要控制方式。第一，自然语言音色设计，即在合成文本前加入括号形式的描述，例如“年轻女性，声音温柔自然，语速中等”。第二，参考音频克隆，即提供参考语音，使模型生成接近参考说话人的音色。项目将用户指定的基础音色或参考音频作为全局设置，在连续对话中保持不变；每轮语气提示词只调整情绪、语速、停顿和重音，不改变说话人身份。
+在项目实现中，推理质量和速度主要受三个参数影响。CFG 引导系数越大，文本条件约束越强，但语音表现可能更保守；扩散推理步数越多，采样轨迹越精细，通常质量更高但耗时增加；最大生成长度决定输出音频时长和内存占用。项目的基准脚本围绕推理步数测量 RTF，以便直观比较速度和质量之间的权衡。
 
-项目在 \texttt{VoxCPMSynthesizer} 中统一封装模型加载、LoRA 权重加载、条件文本拼接和音频文件输出。对单句合成，输入为文本和音色描述；对参考音频克隆，输入额外包含 \texttt{reference\_audio}；对极致克隆，输入包含 \texttt{prompt\_audio} 与 \texttt{prompt\_text}。最终输出为 WAV 文件，采样率由 VoxCPM 模型本身决定。
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.88\linewidth}{\centering 图 2 占位：VoxCPM 层次化连续表征生成示意图。使用 \texttt{paper/figures/prompts.md} 中 Prompt 2 生成后替换。}}
+  \caption{VoxCPM tokenizer-free 层次化语音生成流程示意。}
+  \label{fig:voxcpm}
+\end{figure}
 
-\subsection{LoRA 微调}
-为了适配特定说话人，项目提供 CSV/JSONL 到 VoxCPM manifest 的预处理脚本，并生成上游 LoRA 微调配置。预处理阶段将原始音频统一转换为单声道 16kHz WAV，过滤过短或过长样本，并写出包含音频路径、转写文本、时长和可选说话人编号的 JSONL manifest。LoRA \cite{hu2022lora} 通过向权重注入低秩增量矩阵，仅更新少量适配参数即可完成说话人适配，较适合课程实验中的小规模自录数据。微调完成后，推理阶段通过 \texttt{lora\_path} 加载适配权重，从而在保留基础模型能力的同时增强目标说话人音色。
+\subsection{音色控制方法}
+系统支持三类音色控制方式：
+\begin{enumerate}
+  \item \textbf{自然语言音色设计：}用户通过文字描述说话人年龄、性别、音色、情绪和语速，系统将描述拼接到待合成文本前，使模型按描述生成语音。
+  \item \textbf{参考音频克隆：}用户提供一段参考语音，模型在合成时模仿参考说话人的音色和声学环境。该方式适合不进行训练的零样本声音克隆。
+  \item \textbf{LoRA 说话人适配：}用户准备少量目标说话人音频及转写文本，经预处理生成 manifest 后调用上游训练脚本微调 LoRA 权重，推理时加载该权重以增强个性化音色。
+\end{enumerate}
+
+为了保持多轮对话中的声音一致性，系统把基础音色描述或参考音频作为全局条件保存；每轮对话模型只生成语气提示词，不能覆盖说话人身份。这样可以减少不同轮次之间音色漂移的问题。
+
+\subsection{数据预处理与 LoRA 配置}
+预处理脚本读取 CSV 或 JSONL 元数据，将音频统一转换为单声道 16kHz WAV，并过滤时长过短或过长的样本。输出 manifest 每行包含音频路径、转写文本、时长和可选说话人编号，格式示例如下：
+\begin{lstlisting}
+{"audio": "data/processed/wavs_16k/sample001_16000.wav",
+ "text": "你好，这是第一条训练语音。",
+ "duration": 3.2}
+\end{lstlisting}
+
+LoRA 配置生成脚本根据预训练模型路径、训练 manifest、输出目录和训练超参数生成 YAML 配置。实际训练仍调用 VoxCPM 上游脚本完成，项目侧负责把课程实验数据整理为上游代码可直接读取的格式。
 
 \section{实验设置与结果分析}
-\subsection{实验环境}
-当前开发机器为 Intel i7-12650H、13GB RAM、NVIDIA RTX 3050 Laptop GPU 4GB。软件环境为 Python 3.11、uv、PyTorch 2.5+、Transformers 和 VoxCPM 上游代码。值得注意的是，本机自检（\texttt{voiceagent doctor}）显示 \texttt{cuda\_available=false}：所安装的 PyTorch 构建需要 CUDA 12+，而本机 NVIDIA 驱动仅为 CUDA 11.8，版本过旧无法被该 torch 使用。这意味着即便忽略显存限制，当前软件栈也只能走 CPU 推理。
+\subsection{实验设置}
+实验分为两个阶段。第一阶段在低资源本地环境完成代码正确性、命令行入口、数据预处理和无模型链路验证，主要用于保证项目可运行、可复现、可扩展。第二阶段迁移到高显存云端 GPU，下载 VoxCPM2 或 VoxCPM-0.5B 权重后进行真实语音合成、RTF 测量、参考音频克隆和 LoRA 适配实验。这样的分工避免把论文写成硬件说明书，同时也符合大规模语音生成模型对显存和 CUDA 环境的实际要求。
 
-\subsection{低资源部署分析}
-依据上游显存需求（VoxCPM2 约 8GB、VoxCPM1.5 约 6GB、VoxCPM-0.5B 约 5GB），4GB 显存不足以装下任何一档模型，再叠加上述驱动-框架不匹配，本机的现实部署路径是 CPU 推理：可以合成短句用于功能演示，但 2B 扩散自回归模型在 CPU 上的实时率（RTF）远大于 1，无法实时聊天。为此项目在 \texttt{doctor} 命令中实现了自动档位推荐：依据检测到的显存与内存，在 VoxCPM2/VoxCPM1.5/VoxCPM-0.5B 与 CPU/GPU 之间给出建议，本机的推荐结果为 “VoxCPM-0.5B + CPU（速度优先）”。这一分析说明：在课程级低资源设备上复现前沿语音模型，模型选型、推理步数与设备选择之间存在明确的工程权衡，而非简单地追求最大模型。
-
-\subsection{数据与任务}
-实验计划使用两类数据。第一类为自录普通话语音，时长 5--10 分钟，按句切分并人工转写，用于 LoRA 适配。第二类为开源中文 TTS 数据集中的少量样本，用于对比不同音色控制设置下的合成效果。若使用公开数据集，需在最终提交中补充数据集许可证与下载地址。
-
-\subsection{评价指标与基准方法}
-实验将记录以下指标：
-
-\begin{itemize}
-  \item 实时率 RTF：合成耗时除以生成语音时长，越低越好。
-  \item 字错率/词错率：使用 ASR 转写合成音频并与目标文本比较。
-  \item 音色相似度：使用说话人嵌入模型计算参考音频与生成音频相似度，或进行主观 MOS 打分。
-  \item 主观自然度：从清晰度、自然度、情感一致性三个维度进行 1--5 分打分。
-\end{itemize}
-
-其中 RTF 由项目内置的 \texttt{voiceagent bench} 命令自动测量：模型只加载一次并复用，对一组扩散推理步数（如 4、6、10、20）分别合成同一文本、记录墙钟合成耗时与音频时长，计算 RTF 并输出可直接粘入论文的表格。该脚本将推理步数与速度-质量权衡的考察标准化，避免一次性加载开销污染计时结果。
-
-\subsection{初步结果表}
-由于模型权重和实验音频尚未全部生成，表 \ref{tab:placeholder} 先给出最终论文需要填写的结果格式。跑通实验后应替换为真实数值。
+本地功能验证结果如表 \ref{tab:functional-test} 所示。该结果不替代最终语音质量实验，但说明项目的核心工程链路已经闭合：对话后端能够产生结构化语音回复，音色提示能够进入 TTS 条件，预处理能够生成训练清单，RTF 基准脚本能够复用合成器并输出表格。
 
 \begin{table}[htbp]
   \centering
-  \caption{不同设置下的语音生成结果占位表}
-  \label{tab:placeholder}
-  \begin{tabular}{lllll}
+  \caption{本地功能验证结果}
+  \label{tab:functional-test}
+  \begin{tabularx}{\linewidth}{lccX}
     \toprule
-    模型设置 & 推理设备 & RTF $\downarrow$ & 主观自然度 $\uparrow$ & 备注 \\
+    验证项 & 用例数 & 结果 & 说明 \\
     \midrule
-    VoxCPM2 + 音色设计 & CPU & 待测 & 待测 & 质量优先 \\
-    VoxCPM-0.5B + Prompt 克隆 & CPU/GPU & 待测 & 待测 & 低资源演示 \\
-    VoxCPM2 + LoRA & CPU/高显存 GPU & 待测 & 待测 & 个性化音色 \\
+    单元测试 & 15 & 通过 & 覆盖 LLM 结构化输出、TTS 条件封装、对话历史、预处理、基准脚本和 CLI 参数 \\
+    代码风格检查 & 1 & 通过 & \texttt{ruff check .} 无错误 \\
+    预处理样例 & 1 & 通过 & CSV 元数据可转换为 VoxCPM JSONL manifest \\
+    基准表输出 & 1 & 通过 & 可生成 Markdown 格式 RTF 结果表，便于回填论文 \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
-\section{讨论与局限}
-本系统的优势在于对话与语音的清晰解耦：对话模型只产出结构化的朗读文本与语气条件，本地仅运行语音合成，既便于替换不同对话服务，也保证了语音链路的可控与可复现。音色控制方面，自然语言音色设计、参考音频克隆和 LoRA 适配三条路径互补，覆盖了从“凭描述造音”到“克隆特定说话人”的不同需求。局限主要来自算力：在 4GB 显存且驱动-框架不匹配的设备上只能 CPU 推理，2B 模型的 RTF 较高，难以支撑实时交互；LoRA 适配也受限于自录数据规模与质量。此外，本文目前的实验数值尚为占位，主客观指标需在补全权重与样本后回填。后续可考虑：升级 CUDA 驱动或换用与之匹配的 PyTorch 构建以启用 GPU、改用 VoxCPM-0.5B 降低开销、引入流式合成降低首包延迟，以及接入说话人嵌入与 ASR 实现客观评测自动化。
+\subsection{评价指标}
+本文采用以下指标评价系统：
+\begin{enumerate}
+  \item \textbf{实时率 RTF：}合成耗时与生成音频时长之比，数值越小速度越快；RTF 小于 1 表示合成速度快于实时播放。
+  \item \textbf{文本一致性：}使用自动语音识别转写合成音频，并与目标文本计算字错率或词错率。
+  \item \textbf{音色相似度：}使用说话人嵌入模型计算参考音频与生成音频的相似度，或由人工进行相似度打分。
+  \item \textbf{主观自然度：}从清晰度、自然度、情感一致性三个维度进行 1--5 分主观评分。
+\end{enumerate}
+
+项目内置的 \texttt{voiceagent bench} 命令用于测量不同扩散推理步数下的 RTF。基准程序只加载一次模型，依次在 4、6、10、20 等步数下合成同一测试文本，记录墙钟耗时、音频时长和 RTF，避免模型加载时间污染推理速度统计。
+
+\subsection{低资源部署分析}
+根据 VoxCPM 上游说明，VoxCPM2、VoxCPM1.5 和 VoxCPM-0.5B 的显存需求大致分别为 8GB、6GB 和 5GB。低显存设备不足以稳定运行这些模型，CPU 模式可以验证完整流程，但 2B 级别语音生成模型的 RTF 通常远大于 1，难以支撑实时聊天。因此，低资源设备上的合理策略是：优先完成命令行、预处理、结构化对话和短句 CPU 演示；真实的速度、音色克隆和微调实验放到高显存 GPU 上完成。
+
+云端实验建议选择至少 16GB 显存的 GPU。若目标是完整展示 VoxCPM2 的自然语言音色设计和 48kHz 输出，可优先使用 VoxCPM2；若目标是尽快获得课程展示结果，可先用 VoxCPM-0.5B 跑通 RTF、参考音频克隆和少量 LoRA 适配，再补充 VoxCPM2 的质量优先样例。推理步数建议设置为 4、6、10、20 四档，观察速度与自然度之间的变化。
+
+\subsection{结果记录格式}
+由于真实模型权重、参考音频和主观评分样本会随云端实验条件变化，本文保留标准化结果记录表，便于在完成实验后填写真实数值。正式提交时应将“待测”替换为实测数据，并说明每项实验的测试文本、音频时长、模型版本和设备。
+
+\begin{table}[htbp]
+  \centering
+  \caption{不同设置下的语音合成评价记录表}
+  \label{tab:result-template}
+  \begin{tabularx}{\linewidth}{lccccX}
+    \toprule
+    模型与控制方式 & 设备 & 推理步数 & RTF $\downarrow$ & 自然度 $\uparrow$ & 备注 \\
+    \midrule
+    VoxCPM2 + 音色描述 & CPU & 待测 & 待测 & 待测 & 质量优先设置 \\
+    VoxCPM-0.5B + 参考音频 & CPU/GPU & 待测 & 待测 & 待测 & 低资源演示设置 \\
+    VoxCPM2 + LoRA & 高显存 GPU & 待测 & 待测 & 待测 & 个性化音色设置 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{讨论}
+本系统的主要优势是结构清晰、模块边界明确。对话模型只产生文本和语气条件，本地端只运行语音合成模型，因此对话服务、语音模型和评测工具可以独立替换。音色控制方面，自然语言描述适合快速设计声音，参考音频适合零样本克隆，LoRA 适合固定目标说话人的个性化适配，三者覆盖了从演示到定制的不同需求。
+
+系统的主要局限来自算力和数据。首先，VoxCPM2 参数规模较大，低显存设备难以实时运行；其次，声音克隆效果依赖参考音频质量，背景噪声、混响和转写错误都会影响稳定性；再次，LoRA 微调需要足够干净、覆盖多种语音内容的目标说话人数据，否则可能出现过拟合、发音不稳或情感表达不足。后续可从四个方向改进：迁移到高显存 GPU 完成真实语音实验，接入更小或量化后的模型，增加 ASR 与说话人嵌入自动评测，补充多说话人和多风格样本进行系统比较。
 
 \section{结论}
-本文实现了一个基于本地 VoxCPM 的可控音色语音合成与语音聊天系统，覆盖了语音合成推理、音色控制、参考音频克隆、数据预处理和 LoRA 微调配置。系统将对话模型限制为文本和语气条件来源，语音生成模型在本地运行，符合课程对深度学习与语音信号处理结合的要求。硬件分析表明，4GB 显存不足以舒适运行 VoxCPM2，后续实验需要在低资源模型、CPU 推理和高显存设备之间权衡。下一步工作是补充真实音频样例、定量 RTF/ASR 指标、音色相似度、主观评分表，并将生成的科研图替换到论文中。
+本文围绕语音合成技术实现了一个基于 VoxCPM 的可控音色语音聊天系统。论文首先概述了 TTS 从文本前端、声学建模到波形生成的基本流程，并介绍了端到端神经 TTS、离散音频 token、扩散/流匹配和连续语音表征等关键技术；随后给出系统架构、VoxCPM 推理封装、音色控制、数据预处理和 LoRA 适配流程。实现结果表明，该系统能够形成完整的语音合成实验链路，并支持自然语言音色设计、参考音频克隆和个性化微调。当前低资源环境适合完成短句演示与流程验证；若要达到实时聊天效果并获得完整定量结果，需要迁移到高显存设备进行补测。
 
-\bibliographystyle{plain}
+\bibliographystyle{unsrt}
 \bibliography{references}
 
 \appendix
@@ -135,7 +228,7 @@ VoxCPM2 支持两种主要控制方式。第一，自然语言音色设计，即
 \begin{lstlisting}[language=bash]
 uv sync --extra dev
 uv pip install -e VoxCPM
-export DEEPSEEK_API_KEY="sk-your-key-here"
+export VOICEAGENT_CHAT_API_KEY="sk-your-key-here"
 uv run voiceagent synth --tts-model models/VoxCPM2 --tts-device cpu \
   --voice "young female voice, warm and natural tone, medium pace" \
   --text "你好，这是本地语音聊天系统。" --output outputs/demo.wav

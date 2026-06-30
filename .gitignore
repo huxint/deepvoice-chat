@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.uv-cache/
 
 models/
 pretrained_models/
@@ -24,6 +25,7 @@ data/manifests/
 *.ogg
 
 paper/build/
+paper/main.pdf
 paper/*.aux
 paper/*.bbl
 paper/*.bcf
@@ -35,6 +37,7 @@ paper/*.out
 paper/*.run.xml
 paper/*.synctex.gz
 paper/*.toc
+paper/*.xdv
 
 .env
 .DS_Store
